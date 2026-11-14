@@ -36,6 +36,117 @@ const GROUPS = ["Cửa hàng tiện lợi", "Tạp hóa / Siêu thị / Thực p
 const RINGS = [1, 3, 5, 10, 20, 30, 50];
 const CENTER = [21.0288, 105.8524];
 const COLORS = ['#d7263d', '#1b998b', '#f49d37', '#3f88c5', '#e377c2'];
+// Keep full datasets for analysis; only construct Leaflet objects near the view.
+const MM = (() => {
+  // Share one work budget across layers; separate rAF loops can add up on phones.
+  const work = new Map(); let nextWork = 0, workFrame = null;
+  const drain = () => {
+    workFrame = null; const start = performance.now();
+    for (const [id, task] of work) {
+      work.delete(id); task();
+      if (performance.now() - start >= 6) break;
+    }
+    if (work.size && workFrame === null) workFrame = requestAnimationFrame(drain);
+  };
+  const enqueue = task => {
+    const id = ++nextWork; work.set(id, task);
+    if (workFrame === null) workFrame = requestAnimationFrame(drain);
+    return id;
+  };
+  const pointBounds = (lat, lon, radius = 0) => {
+    const dy = radius / 110574, dx = radius / (111320 * Math.cos(lat * Math.PI / 180));
+    return [lon - dx, lat - dy, lon + dx, lat + dy];
+  };
+  const featureBounds = feature => {
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    const visit = coords => {
+      if (typeof coords[0] === 'number') {
+        box[0] = Math.min(box[0], coords[0]); box[1] = Math.min(box[1], coords[1]);
+        box[2] = Math.max(box[2], coords[0]); box[3] = Math.max(box[3], coords[1]);
+      } else coords.forEach(visit);
+    };
+    visit(feature.geometry.coordinates); return box;
+  };
+  const latLngBounds = b => L.latLngBounds([b[1], b[0]], [b[3], b[2]]);
+  const intersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+  class ViewportLayer extends L.Layer {
+    constructor(data, options) {
+      super(); this.config = options; this.group = options.group || L.layerGroup();
+      this.active = new Map(); this.frame = null; this.pinned = null;
+      this.setData(data);
+    }
+    setData(data) {
+      this.data = data;
+      this.rows = data.map((row, index) => ({ row, key: this.config.key ? this.config.key(row, index) : index, box: this.config.bounds(row, index) }));
+      this.byKey = new Map(this.rows.map(entry => [entry.key, entry]));
+      if (!this.byKey.has(this.pinned)) this.pinned = null;
+      this.schedule(); return this;
+    }
+    onAdd(map) {
+      map.addLayer(this.group);
+      map.on('moveend zoomend', this.schedule, this);
+      map.on('movestart zoomstart', this.pause, this);
+      this.schedule();
+    }
+    onRemove(map) {
+      this.pause(); map.off('moveend zoomend', this.schedule, this);
+      map.off('movestart zoomstart', this.pause, this);
+      map.removeLayer(this.group); this.group.clearLayers(); this.active.clear(); this.pinned = null;
+    }
+    pause() { if (this.frame !== null) work.delete(this.frame); this.frame = null; }
+    schedule() {
+      this.pause();
+      if (this._map && this._map.hasLayer(this)) this.frame = enqueue(() => this.sync());
+    }
+    refresh(entry, meta) {
+      if (entry.row !== meta.row) { this.config.update?.(entry.layer, meta.row); entry.row = meta.row; }
+    }
+    ensure(key) {
+      const meta = this.byKey.get(key); if (!meta) return null;
+      this.pinned = key;
+      let entry = this.active.get(key);
+      if (!entry) {
+        entry = { row: meta.row, layer: this.config.create(meta.row, key) };
+        this.active.set(key, entry); this.group.addLayer(entry.layer);
+      } else this.refresh(entry, meta);
+      return entry.layer;
+    }
+    boundsFor(key) { return latLngBounds(this.byKey.get(key).box); }
+    getLayers() { return [...this.active.values()].map(entry => entry.layer); }
+    setStyle(style) {
+      this.getLayers().forEach(layer => layer.setStyle(typeof style === 'function' ? style(layer.feature) : style)); return this;
+    }
+    sync() {
+      this.frame = null;
+      if (!this._map || !this._map.hasLayer(this)) return;
+      const b = this._map.getBounds().pad(0.2), view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+      const visible = this._map.getZoom() >= (this.config.minZoom || 0);
+      const desired = this.rows.filter(meta => meta.key === this.pinned || (visible && intersects(meta.box, view)));
+      const keys = new Set(desired.map(meta => meta.key));
+      const removed = [];
+      for (const [key, entry] of this.active) if (!keys.has(key)) { removed.push(entry.layer); this.active.delete(key); }
+      if (this.group.removeLayers) this.group.removeLayers(removed); else removed.forEach(layer => this.group.removeLayer(layer));
+      const pending = [];
+      desired.forEach(meta => { const entry = this.active.get(meta.key); if (entry) this.refresh(entry, meta); else pending.push(meta); });
+      let cursor = 0;
+      const build = () => {
+        this.frame = null;
+        if (!this._map || !this._map.hasLayer(this)) return;
+        const start = performance.now(), batch = [];
+        while (cursor < pending.length && batch.length < 48 && performance.now() - start < 4) {
+          const meta = pending[cursor++];
+          if (this.active.has(meta.key)) continue;
+          const layer = this.config.create(meta.row, meta.key); this.active.set(meta.key, { row: meta.row, layer }); batch.push(layer);
+        }
+        if (this.group.addLayers) this.group.addLayers(batch); else batch.forEach(layer => this.group.addLayer(layer));
+        if (cursor < pending.length) this.frame = enqueue(build);
+      };
+      build();
+    }
+  }
+  return { ViewportLayer, pointBounds, featureBounds, latLngBounds };
+})();
+
 
 const map = L.map('map', { preferCanvas: true }).setView(CENTER, 12);
 // Trang mở từ file:// không gửi Referer: tile.openstreetmap.org trả 403 "Access blocked",
@@ -64,11 +175,13 @@ const val = (p) => metric === 'ch' ? (p.tien_loi + p.tap_hoa) : p[metric];
 const color = (v) => { if (v == null) return '#eee'; const b = METRICS[metric].breaks; let i = 0; while (i < b.length && v >= b[i]) i++; return RAMP[i]; };
 const fmt = (v) => v == null ? '–' : Number(v).toLocaleString('vi-VN');
 
-const wardLayer = L.geoJSON(WARDS, {
-  style: (f) => ({ color: '#555', weight: 0.7, fillOpacity: 0.35, fillColor: color(val(f.properties)) }),
-  onEachFeature: (f, l) => {
+const wardStyle = f => ({ color: '#555', weight: 0.7, fillOpacity: 0.35, fillColor: color(val(f.properties)) });
+const wardLayer = new MM.ViewportLayer(WARDS.features, {
+  bounds: MM.featureBounds,
+  create: f => {
+    const l = L.geoJSON(f, { style: wardStyle }).getLayers()[0];
     const p = f.properties;
-    l.bindPopup(`<b>${p.ten}</b><br>${p.tinh || ''}<table class="popup">
+    l.bindPopup(() => `<b>${p.ten}</b><br>${p.tinh || ''}<table class="popup">
       <tr><td>Cách Hồ Gươm</td><td>${p.km} km</td></tr>
       <tr><td>Diện tích</td><td>${p.dt} km²</td></tr>
       <tr><td>Dân số ${p.chinh_thuc ? '<b>chính thức</b> (6/2025)' : 'ước tính (trong 50km)'}</td><td>${fmt(p.dan_so)}</td></tr>
@@ -82,7 +195,8 @@ const wardLayer = L.geoJSON(WARDS, {
       <tr><td>Cửa hàng chuỗi</td><td>${p.chuoi}</td></tr>
       <tr><td>Dân / 1 cửa hàng</td><td>${fmt(p.dan_tren_ch)}</td></tr></table>`);
     l.on('mouseover', () => l.setStyle({ weight: 2.5, color: '#000' }));
-    l.on('mouseout', () => wardLayer.resetStyle(l));
+    l.on('mouseout', () => l.setStyle(wardStyle(f)));
+    return l;
   },
 }).addTo(map);
 
@@ -94,15 +208,15 @@ L.marker(CENTER).bindPopup('<b>Hồ Hoàn Kiếm</b> – tâm vùng phân tích'
 // ---- Điểm bán lẻ ----
 const overlays = { 'Phường/xã (tô màu)': wardLayer, 'Vòng bán kính': ringLayer };
 GROUPS.forEach((g, gi) => {
-  const cl = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, disableClusteringAtZoom: 17 });
-  const ms = [];
-  for (const p of POINTS) {
-    if (p[2] !== gi) continue;
-    ms.push(L.circleMarker([p[0], p[1]], { radius: 5, color: '#fff', weight: 1, fillColor: COLORS[gi], fillOpacity: 0.95 })
-      .bindPopup(`<b>${p[3] || '(không tên)'}</b><br>${g}${p[4] ? '<br>Chuỗi: <b>' + p[4] + '</b>' : ''}${p[6] ? '<br>' + p[6] : ''}<br><span style="color:#888">Nguồn: ${p[5] ? 'OpenStreetMap' : 'Overture'}</span>`));
-  }
-  cl.addLayers(ms);
-  const label = `<span class="dot" style="background:${COLORS[gi]}"></span>${g} (${ms.length.toLocaleString('vi-VN')})`;
+  const points = POINTS.filter(p => p[2] === gi);
+  const cl = new MM.ViewportLayer(points, {
+    bounds: p => MM.pointBounds(p[0], p[1]),
+    // ViewportLayer batches both creation and insertion; avoid a second async queue.
+    group: L.markerClusterGroup({ animate: false, chunkedLoading: false, maxClusterRadius: 45, disableClusteringAtZoom: 17 }),
+    create: p => L.circleMarker([p[0], p[1]], { radius: 5, color: '#fff', weight: 1, fillColor: COLORS[gi], fillOpacity: 0.95 })
+      .bindPopup(() => `<b>${p[3] || '(không tên)'}</b><br>${g}${p[4] ? '<br>Chuỗi: <b>' + p[4] + '</b>' : ''}${p[6] ? '<br>' + p[6] : ''}<br><span style="color:#888">Nguồn: ${p[5] ? 'OpenStreetMap' : 'Overture'}</span>`),
+  });
+  const label = `<span class="dot" style="background:${COLORS[gi]}"></span>${g} (${points.length.toLocaleString('vi-VN')})`;
   overlays[label] = cl;
   if (gi < 2) cl.addTo(map);
 });
@@ -158,19 +272,26 @@ const areaPopup = (p) => `<div class="rs-pop"><b>${esc(p.ten)}</b>${p.thuoc ? `<
     ${p.pub_ho ? `<tr><td>Số hộ</td><td class="pub">${fmt(p.pub_ho)}</td></tr>` : ''}
     ${p.pub_url ? `<tr><td colspan="2"><a href="${esc(p.pub_url)}" target="_blank" rel="noopener">Nguồn</a></td></tr>` : ''}` : ''}
   </table><small style="color:#888">Số “ước tính” suy từ dữ liệu bản đồ, sai số có thể ±30–50%.</small></div>`;
-const areaLayer = L.geoJSON(RES_AREAS, {
-  style: (f) => ({ color: PURPLE, weight: f.properties.co_ten ? 1.6 : 0.8, dashArray: f.properties.co_ten ? null : '3 3', fillColor: PURPLE, fillOpacity: f.properties.co_ten ? 0.12 : 0.06 }),
-  onEachFeature: (f, l) => { l.bindPopup(areaPopup(f.properties), { maxWidth: 320 }); if (f.properties.co_ten) l.bindTooltip(f.properties.ten, { sticky: true }); },
+const areaLayer = new MM.ViewportLayer(RES_AREAS.features, {
+  bounds: MM.featureBounds,
+  create: f => {
+    const l = L.geoJSON(f, { style: { color: PURPLE, weight: f.properties.co_ten ? 1.6 : 0.8, dashArray: f.properties.co_ten ? null : '3 3', fillColor: PURPLE, fillOpacity: f.properties.co_ten ? 0.12 : 0.06 } }).getLayers()[0];
+    l.bindPopup(() => areaPopup(f.properties), { maxWidth: 320 });
+    if (f.properties.co_ten) l.bindTooltip(f.properties.ten, { sticky: true }); return l;
+  },
 });
 
 // ---- Tòa chung cư ----
 // RES_BLDG: [lat, lon, ten, so_tang, can_ho, cu_dan, loai(0=chung cư,1=KTX), khu, tang_gia_dinh(0/1), phuong_xa]
-const bldgLayer = L.layerGroup(RES_BLDG.map(b => L.circleMarker([b[0], b[1]], {
+const bldgLayer = new MM.ViewportLayer(RES_BLDG, {
+  minZoom: 13, bounds: b => MM.pointBounds(b[0], b[1]),
+  create: b => L.circleMarker([b[0], b[1]], {
     radius: Math.max(4, Math.min(11, Math.sqrt((b[5] || 100) / 40))), color: '#fff', weight: 1, fillColor: b[6] ? '#b15928' : PURPLE, fillOpacity: 0.9 })
-  .bindPopup(`<div class="rs-pop"><b>${esc(b[2] || '(chung cư không tên)')}</b><br><small>${b[6] ? 'Ký túc xá' : 'Chung cư'}${b[7] ? ' · ' + esc(b[7]) : ''}${b[9] ? ' · ' + esc(b[9]) : ''}</small><table>
+  .bindPopup(() => `<div class="rs-pop"><b>${esc(b[2] || '(chung cư không tên)')}</b><br><small>${b[6] ? 'Ký túc xá' : 'Chung cư'}${b[7] ? ' · ' + esc(b[7]) : ''}${b[9] ? ' · ' + esc(b[9]) : ''}</small><table>
     <tr><td>Số tầng</td><td>${b[3]}${b[8] ? ' <small>(giả định)</small>' : ''}</td></tr>
     ${b[6] ? '' : `<tr><td>Căn hộ ước tính</td><td class="est">${fmt(b[4])}</td></tr>`}
-    <tr><td>Cư dân ước tính</td><td class="est">${fmt(b[5])}</td></tr></table></div>`)));
+    <tr><td>Cư dân ước tính</td><td class="est">${fmt(b[5])}</td></tr></table></div>`),
+});
 
 const MIN_Z = 13;
 const resGroup = L.layerGroup([areaLayer]).addTo(map);
@@ -185,16 +306,16 @@ bldgToggle.addTo(map);
 
 window.RS = {
   areaLayer, bldgLayer, resGroup,
-  goArea: (f) => { if (!map.hasLayer(resGroup)) resGroup.addTo(map); const l = areaLayer.getLayers().find(x => x.feature === f); map.fitBounds(l.getBounds(), { maxZoom: 17 }); l.openPopup(); },
-  goBldg: (i) => { const b = RES_BLDG[i]; if (!map.hasLayer(resGroup)) resGroup.addTo(map); bldgOn = true; map.setView([b[0], b[1]], 18); setTimeout(() => { syncBldg(); bldgLayer.getLayers()[i].openPopup(); }, 300); },
-  goWard: (f) => { const l = wardLayer.getLayers().find(x => x.feature === f); map.fitBounds(l.getBounds()); l.openPopup(); },
+  goArea: (f) => { if (!map.hasLayer(resGroup)) resGroup.addTo(map); const i = RES_AREAS.features.indexOf(f); map.fitBounds(areaLayer.boundsFor(i), { maxZoom: 17, animate: false }); areaLayer.ensure(i).openPopup(); },
+  goBldg: (i) => { const b = RES_BLDG[i]; if (!map.hasLayer(resGroup)) resGroup.addTo(map); bldgOn = true; if (!map.hasLayer(bldgToggle)) bldgToggle.addTo(map); map.setView([b[0], b[1]], 18, { animate: false }); syncBldg(); bldgLayer.ensure(i).openPopup(); },
+  goWard: (f) => { if (!map.hasLayer(wardLayer)) wardLayer.addTo(map); const i = WARDS.features.indexOf(f); map.fitBounds(wardLayer.boundsFor(i), { animate: false }); wardLayer.ensure(i).openPopup(); },
 };
 // ---- Tìm kiếm ----
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
 const IDX = window.SEARCH_IDX = [];
-RES_AREAS.features.forEach(f => { if (f.properties.co_ten) IDX.push({ n: norm(f.properties.ten), label: f.properties.ten, sub: 'Khu dân cư · ' + (f.properties.px || ''), go: () => { if (!map.hasLayer(resGroup)) resGroup.addTo(map); const l = areaLayer.getLayers().find(x => x.feature === f); map.fitBounds(l.getBounds(), { maxZoom: 17 }); l.openPopup(); } }); });
-RES_BLDG.forEach((b, i) => { if (b[2]) IDX.push({ n: norm(b[2] + ' ' + (b[7] || '')), label: b[2], sub: 'Tòa nhà · ' + (b[7] || b[9] || ''), go: () => { if (!map.hasLayer(resGroup)) resGroup.addTo(map); map.setView([b[0], b[1]], 18); setTimeout(() => { syncBldg(); bldgLayer.getLayers()[i].openPopup(); }, 300); } }); });
-WARDS.features.forEach(f => IDX.push({ n: norm(f.properties.ten), label: f.properties.ten, sub: 'Phường/xã · ' + (f.properties.tinh || ''), go: () => { const l = wardLayer.getLayers().find(x => x.feature === f); map.fitBounds(l.getBounds()); l.openPopup(); } }));
+RES_AREAS.features.forEach(f => { if (f.properties.co_ten) IDX.push({ n: norm(f.properties.ten), label: f.properties.ten, sub: 'Khu dân cư · ' + (f.properties.px || ''), go: () => RS.goArea(f) }); });
+RES_BLDG.forEach((b, i) => { if (b[2]) IDX.push({ n: norm(b[2] + ' ' + (b[7] || '')), label: b[2], sub: 'Tòa nhà · ' + (b[7] || b[9] || ''), go: () => RS.goBldg(i) }); });
+WARDS.features.forEach(f => IDX.push({ n: norm(f.properties.ten), label: f.properties.ten, sub: 'Phường/xã · ' + (f.properties.tinh || ''), go: () => RS.goWard(f) }));
 const q = document.getElementById('rsQ'), res = document.getElementById('rsRes');
 q.addEventListener('input', () => {
   const t = norm(q.value.trim()); if (t.length < 2) { res.style.display = 'none'; return; }
@@ -244,8 +365,10 @@ const pjPopup = (p) => `<div class="pj-pop"><b style="font-size:14px">${esc(p.te
   <div>Nguồn: ${links(p.nguon_url)}</div></div>`;
 const pjIcon = (p) => L.divIcon({ className: '', iconSize: [22, 22], iconAnchor: [11, 11],
   html: `<div style="width:16px;height:16px;transform:rotate(45deg);background:${color(p.trang_thai)};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.6);${p.vi_tri_uoc_luong ? 'opacity:.75;border-style:dashed' : ''}"></div>` });
-const pjMarkers = PROJECTS.map(p => L.marker([p.lat, p.lon], { icon: pjIcon(p), zIndexOffset: 500 }).bindPopup(pjPopup(p), { maxWidth: 360 }).bindTooltip(p.ten));
-const pjLayer = L.layerGroup(pjMarkers).addTo(map);
+const pjLayer = new MM.ViewportLayer(PROJECTS, {
+  bounds: p => MM.pointBounds(p.lat, p.lon),
+  create: p => L.marker([p.lat, p.lon], { icon: pjIcon(p), zIndexOffset: 500 }).bindPopup(() => pjPopup(p), { maxWidth: 360 }).bindTooltip(p.ten),
+}).addTo(map);
 layerControl.addOverlay(pjLayer, `<span class="dot" style="background:#d62828;border-radius:2px;transform:rotate(45deg)"></span><b>Dự án mới 2024–2031</b> (${PROJECTS.length})`);
 
 // PLANNING: vùng/hành lang quy hoạch, hạ tầng
@@ -254,20 +377,22 @@ const plPopup = (z) => `<div class="pj-pop"><b style="font-size:14px">${esc(z.te
   ${row('Trạng thái', z.trang_thai)}${row('Quyết định', z.quyet_dinh)}${row('Ghi chú', z.ghi_chu)}${row('Cập nhật tin', z.ngay_thong_tin)}</table>
   ${z.nguon_toa_do && /ước/i.test(z.nguon_toa_do) ? '<div class="pj-warn">⚠ Vị trí/bán kính vẽ ước lượng</div>' : ''}<div>Nguồn: ${links(z.nguon_url)}</div></div>`;
 const PL_COLOR = { 'Đô thị vệ tinh/trung tâm mới': '#1f78b4', 'Hành lang/TOD': '#33a02c', 'Hạ tầng giao thông': '#ff7f00', 'Khu đấu giá đất': '#b15928', 'Khu đô thị theo quy hoạch': '#6a3d9a', 'Quy hoạch tổng thể': '#555' };
-const plShapes = PLANNING.map(z => {
+const plLayer = new MM.ViewportLayer(PLANNING, {
+  bounds: z => MM.pointBounds(z.lat, z.lon, (z.ban_kinh_km || 0) * 1000),
+  create: z => {
   const c = PL_COLOR[z.loai] || '#1f78b4';
   const shape = z.ban_kinh_km > 0 && z.loai !== 'Quy hoạch tổng thể'
     ? L.circle([z.lat, z.lon], { radius: z.ban_kinh_km * 1000, color: c, weight: 1.5, dashArray: '6 4', fillColor: c, fillOpacity: 0.06 })
     : L.circleMarker([z.lat, z.lon], { radius: 7, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 });
-  return shape.bindPopup(plPopup(z), { maxWidth: 360 }).bindTooltip(z.ten);
+  return shape.bindPopup(() => plPopup(z), { maxWidth: 360 }).bindTooltip(z.ten);
+  },
 });
-const plLayer = L.layerGroup(plShapes);
 layerControl.addOverlay(plLayer, `<span class="dot" style="background:transparent;border:2px dashed #1f78b4"></span>Quy hoạch & hạ tầng (${PLANNING.length})`);
 
 window.PJ = {
   pjLayer, plLayer,
-  goProject: (i) => { if (!map.hasLayer(pjLayer)) pjLayer.addTo(map); map.setView([PROJECTS[i].lat, PROJECTS[i].lon], 16); pjMarkers[i].openPopup(); },
-  goPlan: (i) => { if (!map.hasLayer(plLayer)) plLayer.addTo(map); const s = plShapes[i]; if (s.getBounds) map.fitBounds(s.getBounds()); else map.setView(s.getLatLng(), 14); s.openPopup(); },
+  goProject: (i) => { if (!map.hasLayer(pjLayer)) pjLayer.addTo(map); map.setView([PROJECTS[i].lat, PROJECTS[i].lon], 16, { animate: false }); pjLayer.ensure(i).openPopup(); },
+  goPlan: (i) => { if (!map.hasLayer(plLayer)) plLayer.addTo(map); const s = plLayer.ensure(i); if (s.getBounds) map.fitBounds(s.getBounds(), { animate: false }); else map.setView(s.getLatLng(), 14, { animate: false }); s.openPopup(); },
 };
 // thêm vào ô tìm kiếm
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
@@ -936,8 +1061,11 @@ function form() {
     <button id="fdReset" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer">↺ Về tiêu chí mặc định</button>`;
   $('fdForm').querySelectorAll('[data-k]').forEach(el => el.addEventListener(el.type === 'number' ? 'input' : 'change', () => {
     const k = el.dataset.k; S[k] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' && !isNaN(+el.value) && k !== 'sort' ? +el.value : el.type === 'number' ? (+el.value || 0) : el.value;
-    save(); run(); }));
-  $('fdReset').onclick = () => { S = { ...DEFAULTS }; save(); form(); run(); };
+    save();
+    if (k === 'show') { if (!S.show) chosen = null; flushFilters(); applyMap(); }
+    else queueRun(el.type === 'number' ? 180 : 0);
+  }));
+  $('fdReset').onclick = () => { clearTimeout(filterTimer); filterTimer = null; chosen = null; S = { ...DEFAULTS }; save(); form(); run(); };
 }
 
 const confOf = (c, ri) => { const dens = c.poi[ri] / (Math.PI * (RADII[ri] / 1000) ** 2); return dens >= 50 ? 2 : dens >= 10 ? 1 : 0; };
@@ -949,9 +1077,53 @@ function storesOf(c, ri) {
   return n;
 }
 let RES = [];
-const layer = L.layerGroup();
+let initialized = false, filterTimer = null, chosen = null, applyingMap = false;
+const candidateKeys = new Map(C.map((c, i) => [c, i]));
+let rowsByKey = new Map();
+const layer = new MM.ViewportLayer([], {
+  key: r => candidateKeys.get(r.c),
+  bounds: r => MM.pointBounds(r.c.la, r.c.lo, +S.r),
+  create: (r, key) => {
+    const col = CONF_COLOR[r.cf];
+    const circle = L.circle([r.c.la, r.c.lo], { radius: +S.r, color: col, weight: 2, fillColor: col, fillOpacity: 0.08, dashArray: r.cf === 0 ? '5 5' : null, interactive: false });
+    const marker = L.circleMarker([r.c.la, r.c.lo], { radius: 8, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 })
+      .bindTooltip(`${r.c.t} · ${fmt(r.pop)} dân · ${r.n} minimart`)
+      .bindPopup(() => popupHtml(rowsByKey.get(key), RADII.indexOf(+S.r)), { maxWidth: 360 });
+    const pair = L.layerGroup([circle, marker]); pair.circle = circle; pair.marker = marker; return pair;
+  },
+  update: (pair, r) => {
+    const col = CONF_COLOR[r.cf]; pair.circle.setRadius(+S.r);
+    pair.circle.setStyle({ color: col, fillColor: col, dashArray: r.cf === 0 ? '5 5' : null });
+    pair.marker.setStyle({ fillColor: col }); pair.marker.setTooltipContent(`${r.c.t} · ${fmt(r.pop)} dân · ${r.n} minimart`);
+  },
+});
+function queueRun(delay) {
+  clearTimeout(filterTimer); filterTimer = setTimeout(() => { filterTimer = null; run(); }, delay);
+}
+function flushFilters() {
+  if (!initialized || filterTimer !== null) { clearTimeout(filterTimer); filterTimer = null; run(); }
+}
+function applyMap() {
+  const rows = S.show ? RES : chosen ? [chosen] : [];
+  applyingMap = true;
+  layer.setData(rows);
+  if (rows.length) { if (!map.hasLayer(layer)) layer.addTo(map); }
+  else if (map.hasLayer(layer)) map.removeLayer(layer);
+  applyingMap = false;
+}
+layer.on('add', () => {
+  if (applyingMap) return;
+  S.show = true; save(); flushFilters(); applyMap();
+  const checkbox = $('fdForm').querySelector('[data-k=show]'); if (checkbox) checkbox.checked = true;
+});
+layer.on('remove', () => {
+  if (applyingMap) return;
+  S.show = false; chosen = null; save();
+  const checkbox = $('fdForm').querySelector('[data-k=show]'); if (checkbox) checkbox.checked = false;
+});
 function run() {
-  const ri = RADII.indexOf(+S.r);
+  initialized = true;
+  const ri = Math.max(0, RADII.indexOf(+S.r));
   RES = [];
   for (const c of C) {
     if (c.l === 'Dự án mới') {
@@ -976,6 +1148,8 @@ function run() {
   }
   const k = S.sort;
   RES.sort((a, b) => k === 'km' ? a.c.km - b.c.km : k === 'year' ? (a.c.y || 0) - (b.c.y || 0) : k === 'apt' ? b.apt - a.apt : k === 'ratio' ? b.ratio - a.ratio : b.pop - a.pop);
+  rowsByKey = new Map(RES.map(r => [candidateKeys.get(r.c), r]));
+  chosen = chosen ? rowsByKey.get(candidateKeys.get(chosen.c)) || null : null;
   draw(ri);
 }
 function popupHtml(r, ri) {
@@ -1002,24 +1176,21 @@ function popupHtml(r, ri) {
 function draw(ri) {
   const R = RADII[ri];
   $('fdSum').innerHTML = `<span><b>${RES.length}</b> khu thỏa tiêu chí · bán kính ${R} m · tối đa ${S.maxS} minimart</span><span><button id="fdFit">Xem tất cả</button> <button id="fdCsv">⬇ CSV</button></span>`;
-  $('fdList').innerHTML = RES.slice(0, 300).map((r, i) => `<div class="fd-item" role="button" tabindex="0" data-i="${i}" style="border-left-color:${CONF_COLOR[r.cf]}">
+  $('fdList').innerHTML = RES.slice(0, 300).map((r, i) => `<div class="fd-item" role="button" tabindex="0" data-i="${i}" data-key="${candidateKeys.get(r.c)}" style="border-left-color:${CONF_COLOR[r.cf]}">
       <b>${esc(r.c.t)}</b><small>${esc(r.c.l)}${r.c.th ? ' · thuộc ' + esc(r.c.th) : ''} · ${esc([r.c.px, r.c.tinh].filter(Boolean).join(', '))} · ${r.c.km} km</small>
       <div class="k"><span>Dân số: <b>${fmt(r.pop)}</b></span><span>Minimart: <b>${r.n}</b></span><span>Căn hộ: ${fmt(r.apt)}</span><span>${esc(r.c.l === 'Dự án mới' ? r.c.ht : 'Đã hình thành')}</span><span style="color:${CONF_COLOR[r.cf]}">Dữ liệu: ${CONF_LABEL[r.cf]}</span></div></div>`).join('')
     + (RES.length > 300 ? '<small>Hiện 300 khu đầu – thu hẹp tiêu chí để xem hết.</small>' : '') + (RES.length ? '' : '<small>Không có khu nào thỏa tiêu chí. Thử tăng số minimart tối đa, giảm dân số tối thiểu hoặc bật thêm loại khu.</small>');
-  layer.clearLayers();
-  RES.forEach((r, i) => {
-    const col = CONF_COLOR[r.cf];
-    const circ = L.circle([r.c.la, r.c.lo], { radius: R, color: col, weight: 2, fillColor: col, fillOpacity: 0.08, dashArray: r.cf === 0 ? '5 5' : null });
-    const mk = L.circleMarker([r.c.la, r.c.lo], { radius: 8, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 })
-      .bindTooltip(`${r.c.t} · ${fmt(r.pop)} dân · ${r.n} minimart`).bindPopup(() => popupHtml(r, ri), { maxWidth: 360 });
-    r.mk = mk; layer.addLayer(circ); layer.addLayer(mk);
-  });
-  if (S.show && !map.hasLayer(layer)) layer.addTo(map);
-  if (!S.show && map.hasLayer(layer)) map.removeLayer(layer);
-  $('fdList').querySelectorAll('.fd-item').forEach(el => el.onclick = () => { const r = RES[+el.dataset.i]; if (!map.hasLayer(layer)) layer.addTo(map);
-    map.setView([r.c.la, r.c.lo], R >= 1000 ? 14 : 15); setTimeout(() => r.mk.openPopup(), 250); if (window.innerWidth < 900) $('fdDrawer').classList.remove('open'); });
-  $('fdFit').onclick = () => { if (RES.length) { if (!map.hasLayer(layer)) layer.addTo(map); map.fitBounds(L.latLngBounds(RES.map(r => [r.c.la, r.c.lo])).pad(0.1)); } };
+  applyMap();
+  $('fdList').onclick = e => {
+    const item = e.target.closest('.fd-item'); if (!item) return;
+    const key = +item.dataset.key; flushFilters(); const r = rowsByKey.get(key); if (!r) return; chosen = r; applyMap();
+    map.setView([r.c.la, r.c.lo], +S.r >= 1000 ? 14 : 15, { animate: false });
+    layer.ensure(candidateKeys.get(r.c)).marker.openPopup();
+    if (window.innerWidth < 900) $('fdDrawer').classList.remove('open');
+  };
+  $('fdFit').onclick = () => { flushFilters(); if (RES.length) { S.show = true; save(); applyMap(); const checkbox = $('fdForm').querySelector('[data-k=show]'); if (checkbox) checkbox.checked = true; map.fitBounds(L.latLngBounds(RES.map(r => [r.c.la, r.c.lo])).pad(0.1)); } };
   $('fdCsv').onclick = () => {
+    if (filterTimer !== null) { flushFilters(); $('fdCsv').click(); return; }
     const head = ['ten', 'loai', 'loai_du_an', 'thuoc_khu', 'phuong_xa', 'tinh', 'cach_ho_guom_km', 'hinh_thanh', 'trang_thai', `dan_so_${R}m`, 'cu_dan_tuong_lai', `can_ho_${R}m`,
       `minimart_${R}m`, 'tien_loi', 'tap_hoa_sieu_thi', 'chuoi', 'cho', 'do_phu_du_lieu', 'vi_tri_xap_xi', 'lat', 'lon', 'google_maps'];
     const q = (v) => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
@@ -1033,11 +1204,11 @@ map.on('popupopen', (e) => { const b = e.popup.getElement().querySelector('[data
 layerControl.addOverlay(layer, '<span class="dot" style="background:#7a1f1f"></span>🎯 Khu thiếu minimart (kết quả lọc)');
 $('fdX').onclick = () => $('fdDrawer').classList.remove('open');
 const btn = document.createElement('button'); btn.id = 'fdOpen'; btn.className = 'sv-btn'; btn.style.background = '#7a1f1f'; btn.style.color = '#fff'; btn.textContent = '🎯 Tìm khu thiếu minimart';
-btn.onclick = () => { document.getElementById('lsDrawer')?.classList.remove('open'); const d = $('fdDrawer'); d.classList.toggle('open'); if (d.classList.contains('open')) { if (!$('fdForm').innerHTML) form(); run(); } };
+btn.onclick = () => { document.getElementById('lsDrawer')?.classList.remove('open'); const d = $('fdDrawer'); d.classList.toggle('open'); if (d.classList.contains('open')) { if (!$('fdForm').innerHTML) form(); flushFilters(); } };
 const fab = document.querySelector('.sv-fab'); if (fab) fab.insertBefore(btn, fab.children[1]);
 document.querySelectorAll('.sv-fab button').forEach(b => { if (/Danh sách dữ liệu/.test(b.textContent)) b.addEventListener('click', () => $('fdDrawer').classList.remove('open')); });
 L.DomEvent.disableClickPropagation($('fdDrawer')); L.DomEvent.disableScrollPropagation($('fdDrawer'));
-form(); run(); if (!S.show) map.removeLayer(layer);
+window.FD = { layer, flush: flushFilters, get results() { return RES; }, get initialized() { return initialized; } };
 })();
 </script>
 <!-- Mobile layout: loaded last so the data and existing workflows stay shared. -->
@@ -1194,14 +1365,16 @@ form(); run(); if (!S.show) map.removeLayer(layer);
   const mobile = window.matchMedia('(max-width: 899px)');
   if (window.visualViewport) {
     const viewport = window.visualViewport;
-    let frame;
+    let frame, lastHeight, lastTop;
     const sizeSheet = () => {
+      if (!mobile.matches || $('svSheet').style.display !== 'block') return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        document.documentElement.style.setProperty('--mm-visual-height', `${viewport.height}px`);
-        document.documentElement.style.setProperty('--mm-visual-top', `${viewport.offsetTop}px`);
+        if (lastHeight !== viewport.height) { document.documentElement.style.setProperty('--mm-visual-height', `${viewport.height}px`); lastHeight = viewport.height; }
+        if (lastTop !== viewport.offsetTop) { document.documentElement.style.setProperty('--mm-visual-top', `${viewport.offsetTop}px`); lastTop = viewport.offsetTop; }
       });
     };
+    new MutationObserver(sizeSheet).observe($('svSheet'), { attributes: true, attributeFilter: ['style'] });
     viewport.addEventListener('resize', sizeSheet); viewport.addEventListener('scroll', sizeSheet); sizeSheet();
   }
   const icon = paths => `<svg class="mm-icon" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
