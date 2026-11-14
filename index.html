@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Bản đồ bán lẻ – 50km quanh Hồ Gươm</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0b6e4f">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
@@ -634,7 +635,7 @@ function openList() {
   if ($('svTokSave')) $('svTokSave').onclick = () => { const t = $('svTok').value.trim(); if (!t) return; setToken(t); openList(); syncNow(true); };
   const draw = () => { const q = $('svQ').value.toLowerCase();
     $('svItems').innerHTML = RECS.filter(r => !q || JSON.stringify(flatRec(r)).toLowerCase().includes(q)).map(r =>
-      `<div class="sv-list-item" data-id="${r.id}"><b>${esc(r.ten_diem)}</b>${r.diem_tong ? ` · ${r.diem_tong}★` : ''}<br><small>${esc(r.loai_diem || '')} · ${esc(r.ket_luan || 'chưa kết luận')} · ${esc(r.ngay || '')}${r.gia_thue_trieu ? ` · ${r.gia_thue_trieu} tr/th` : ''}${r.auto ? ` · ~${fmtN(r.auto.dan_so_500m)} dân/500m` : ''}</small></div>`).join('') || '<small>Chưa có điểm nào. Bấm “＋ Khảo sát”.</small>';
+      `<div class="sv-list-item" role="button" tabindex="0" data-id="${r.id}"><b>${esc(r.ten_diem)}</b>${r.diem_tong ? ` · ${r.diem_tong}★` : ''}<br><small>${esc(r.loai_diem || '')} · ${esc(r.ket_luan || 'chưa kết luận')} · ${esc(r.ngay || '')}${r.gia_thue_trieu ? ` · ${r.gia_thue_trieu} tr/th` : ''}${r.auto ? ` · ~${fmtN(r.auto.dan_so_500m)} dân/500m` : ''}</small></div>`).join('') || '<small>Chưa có điểm nào. Bấm “＋ Khảo sát”.</small>';
     $('svItems').querySelectorAll('.sv-list-item').forEach(el => el.onclick = () => openView(el.dataset.id)); };
   $('svQ').oninput = draw; draw();
 }
@@ -832,7 +833,7 @@ function draw() {
   rows.sort((a, b) => s === 'name' ? a.name.localeCompare(b.name, 'vi') : ((a[s] ?? (asc ? 1e12 : -1e12)) - (b[s] ?? (asc ? 1e12 : -1e12))) * (asc ? 1 : -1));
   current = rows;
   $('lsCount').textContent = `${rows.length.toLocaleString('vi-VN')} mục${rows.length > limit ? ` · hiện ${limit}` : ''}`;
-  $('lsList').innerHTML = rows.slice(0, limit).map((r, i) => `<div class="ls-item" data-i="${i}"><b>${esc(r.name)}</b><small>${esc(r.sub)}</small><span class="m">${tab === 'duan' ? r.metric : esc(r.metric)}</span></div>`).join('')
+  $('lsList').innerHTML = rows.slice(0, limit).map((r, i) => `<div class="ls-item" role="button" tabindex="0" data-i="${i}"><b>${esc(r.name)}</b><small>${esc(r.sub)}</small><span class="m">${tab === 'duan' ? r.metric : esc(r.metric)}</span></div>`).join('')
     + (rows.length > limit ? '<button class="ls-more" id="lsMore">Xem thêm 150</button>' : '') + (rows.length ? '' : '<small>Không có mục nào khớp bộ lọc.</small>');
   $('lsList').querySelectorAll('.ls-item').forEach(el => el.onclick = () => { current[+el.dataset.i].go(); if (window.innerWidth < 900) $('lsDrawer').classList.remove('open'); });
   if ($('lsMore')) $('lsMore').onclick = () => { limit += 150; draw(); };
@@ -852,7 +853,7 @@ $('lsCsv').onclick = () => {
 };
 $('lsX').onclick = () => $('lsDrawer').classList.remove('open');
 // nút mở danh sách: thêm vào nhóm nút bên trái
-const btn = document.createElement('button'); btn.className = 'sv-btn'; btn.textContent = '📋 Danh sách dữ liệu';
+const btn = document.createElement('button'); btn.id = 'lsOpen'; btn.className = 'sv-btn'; btn.textContent = '📋 Danh sách dữ liệu';
 btn.onclick = () => { const d = $('lsDrawer'); d.classList.toggle('open'); if (d.classList.contains('open') && !$('lsTabs').innerHTML) setTab('duan'); };
 const fab = document.querySelector('.sv-fab'); if (fab) fab.insertBefore(btn, fab.children[1]);
 L.DomEvent.disableClickPropagation($('lsDrawer')); L.DomEvent.disableScrollPropagation($('lsDrawer'));
@@ -1001,7 +1002,7 @@ function popupHtml(r, ri) {
 function draw(ri) {
   const R = RADII[ri];
   $('fdSum').innerHTML = `<span><b>${RES.length}</b> khu thỏa tiêu chí · bán kính ${R} m · tối đa ${S.maxS} minimart</span><span><button id="fdFit">Xem tất cả</button> <button id="fdCsv">⬇ CSV</button></span>`;
-  $('fdList').innerHTML = RES.slice(0, 300).map((r, i) => `<div class="fd-item" data-i="${i}" style="border-left-color:${CONF_COLOR[r.cf]}">
+  $('fdList').innerHTML = RES.slice(0, 300).map((r, i) => `<div class="fd-item" role="button" tabindex="0" data-i="${i}" style="border-left-color:${CONF_COLOR[r.cf]}">
       <b>${esc(r.c.t)}</b><small>${esc(r.c.l)}${r.c.th ? ' · thuộc ' + esc(r.c.th) : ''} · ${esc([r.c.px, r.c.tinh].filter(Boolean).join(', '))} · ${r.c.km} km</small>
       <div class="k"><span>Dân số: <b>${fmt(r.pop)}</b></span><span>Minimart: <b>${r.n}</b></span><span>Căn hộ: ${fmt(r.apt)}</span><span>${esc(r.c.l === 'Dự án mới' ? r.c.ht : 'Đã hình thành')}</span><span style="color:${CONF_COLOR[r.cf]}">Dữ liệu: ${CONF_LABEL[r.cf]}</span></div></div>`).join('')
     + (RES.length > 300 ? '<small>Hiện 300 khu đầu – thu hẹp tiêu chí để xem hết.</small>' : '') + (RES.length ? '' : '<small>Không có khu nào thỏa tiêu chí. Thử tăng số minimart tối đa, giảm dân số tối thiểu hoặc bật thêm loại khu.</small>');
@@ -1031,12 +1032,309 @@ function draw(ri) {
 map.on('popupopen', (e) => { const b = e.popup.getElement().querySelector('[data-sv]'); if (b) b.onclick = () => { const [la, lo] = b.dataset.sv.split(',').map(Number); map.closePopup(); if (window.SV) SV.openForm(la, lo); }; });
 layerControl.addOverlay(layer, '<span class="dot" style="background:#7a1f1f"></span>🎯 Khu thiếu minimart (kết quả lọc)');
 $('fdX').onclick = () => $('fdDrawer').classList.remove('open');
-const btn = document.createElement('button'); btn.className = 'sv-btn'; btn.style.background = '#7a1f1f'; btn.style.color = '#fff'; btn.textContent = '🎯 Tìm khu thiếu minimart';
+const btn = document.createElement('button'); btn.id = 'fdOpen'; btn.className = 'sv-btn'; btn.style.background = '#7a1f1f'; btn.style.color = '#fff'; btn.textContent = '🎯 Tìm khu thiếu minimart';
 btn.onclick = () => { document.getElementById('lsDrawer')?.classList.remove('open'); const d = $('fdDrawer'); d.classList.toggle('open'); if (d.classList.contains('open')) { if (!$('fdForm').innerHTML) form(); run(); } };
 const fab = document.querySelector('.sv-fab'); if (fab) fab.insertBefore(btn, fab.children[1]);
 document.querySelectorAll('.sv-fab button').forEach(b => { if (/Danh sách dữ liệu/.test(b.textContent)) b.addEventListener('click', () => $('fdDrawer').classList.remove('open')); });
 L.DomEvent.disableClickPropagation($('fdDrawer')); L.DomEvent.disableScrollPropagation($('fdDrawer'));
 form(); run(); if (!S.show) map.removeLayer(layer);
+})();
+</script>
+<!-- Mobile layout: loaded last so the data and existing workflows stay shared. -->
+<style>
+  :root { --mm-green: #0b6e4f; --mm-ink: #18382f; --mm-muted: #52675f; --mm-nav: 72px; }
+  button, input, select, textarea, summary, a { -webkit-tap-highlight-color: transparent; }
+  button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+  [role=button]:focus-visible { outline: 3px solid #167bba; outline-offset: 3px; }
+  input, textarea { caret-color: var(--mm-green); }
+  ::selection { background: #c9e8da; color: #123d2e; }
+  .mm-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .mm-mobile-label, .mm-nav-icon, .mm-legend-toggle, .mm-filter-toggle { display: none; }
+  .mm-map-scrim { display: none; }
+  .mm-legend-content { display: contents; }
+  .mm-method > summary { display: none; }
+  .mm-survey-stats { display: contents; }
+  .mm-survey-stats > summary { display: none; }
+  @media (max-width: 899px) {
+    html, body { overflow: hidden; height: 100%; }
+    #map { height: 100%; height: 100dvh; }
+    .rs-search { position: fixed; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(68px, env(safe-area-inset-right)); width: auto; }
+    .rs-search input { height: 48px; padding: 0 14px; font-size: 16px; border-radius: 12px; color: var(--mm-ink); box-shadow: 0 3px 14px rgba(15,45,32,.18); }
+    .rs-search input::placeholder { color: var(--mm-muted); }
+    .rs-results { max-height: min(50dvh, 400px); border-radius: 12px; overscroll-behavior: contain; }
+    .rs-results div { min-height: 44px; padding: 12px 14px; font-size: 16px; line-height: 1.4; }
+    .rs-results small { color: var(--mm-muted); }
+    .leaflet-top.leaflet-right { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+    .leaflet-top.leaflet-right .leaflet-control { margin: 0 0 10px; }
+    .leaflet-control-layers { border: 0 !important; border-radius: 12px; box-shadow: 0 3px 14px rgba(15,45,32,.18); }
+    .leaflet-control-layers-toggle { width: 48px; height: 48px; }
+    .leaflet-control-layers-expanded { width: min(300px, calc(100vw - 48px)); padding: 12px; box-sizing: border-box; }
+    .leaflet-control-layers-list { max-height: calc(100dvh - 190px); overflow-y: auto; overscroll-behavior: contain; }
+    .leaflet-control-layers label { padding: 9px 0; min-height: 26px; line-height: 1.5; font-size: 14px; }
+    .leaflet-control-layers input { width: 18px; height: 18px; vertical-align: middle; accent-color: var(--mm-green); }
+    .leaflet-top.leaflet-left { top: calc(76px + env(safe-area-inset-top)); left: auto; right: max(12px, env(safe-area-inset-right)); }
+    .leaflet-top.leaflet-left .leaflet-control { margin: 0; }
+    .leaflet-control-zoom { border: 0 !important; border-radius: 12px; overflow: hidden; box-shadow: 0 3px 14px rgba(15,45,32,.18); }
+    .leaflet-control-zoom a { width: 44px; height: 44px; line-height: 44px; color: var(--mm-ink); }
+    .sv-fab { position: fixed; top: auto; bottom: 0; left: 0; right: 0; min-height: var(--mm-nav); padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); box-sizing: border-box; flex-direction: row; gap: 4px; align-items: stretch; background: #fff; box-shadow: 0 -3px 16px rgba(15,45,32,.14); }
+    .sv-fab > .sv-btn:not(#svSyncBtn) { flex: 1; min-width: 0; min-height: 60px; padding: 7px 2px; box-shadow: none; border-radius: 10px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: #fff !important; color: var(--mm-muted) !important; font-size: 12px; font-weight: 600; }
+    .sv-fab > .sv-btn:active { background: #e5f3ec !important; }
+    .sv-fab > .sv-btn[aria-expanded=true], .sv-fab > #svAdd { background: #e8f4ed !important; color: var(--mm-green) !important; }
+    #fdOpen { order: 0; } #lsOpen { order: 1; } #svAdd { order: 2; } #svListBtn { order: 3; }
+    .sv-fab .mm-desktop-label { display: none; }
+    .mm-mobile-label, .mm-nav-icon { display: block; }
+    #svSyncBtn { position: fixed; top: calc(70px + env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 82px); min-height: 44px; padding: 8px 12px; border-radius: 10px; background: #fff; color: #354e43; box-shadow: 0 2px 9px rgba(15,45,32,.13); font-size: 12px !important; }
+    #svSyncBtn .mm-icon { width: 18px; height: 18px; }
+    #svCount { display: inline; font-variant-numeric: tabular-nums; }
+    .leaflet-bottom.leaflet-left { bottom: calc(var(--mm-nav) + env(safe-area-inset-bottom) + 22px); left: max(12px, env(safe-area-inset-left)); }
+    .leaflet-bottom.leaflet-left .panel { margin: 0; padding: 0; max-width: min(320px, calc(100vw - 24px)); border-radius: 12px; overflow: hidden; box-shadow: 0 3px 14px rgba(15,45,32,.18); }
+    .mm-legend-toggle { display: flex; justify-content: space-between; align-items: center; gap: 14px; min-height: 44px; width: 100%; padding: 10px 14px; border: 0; background: #fff; color: var(--mm-ink); font: 600 14px system-ui, sans-serif; cursor: pointer; }
+    .mm-legend-toggle .mm-icon { width: 18px; height: 18px; }
+    .mm-legend-content { display: none; }
+    .mm-legend-open .mm-legend-content { display: block; padding: 0 14px 14px; max-height: 42dvh; overflow-y: auto; overscroll-behavior: contain; }
+    .mm-legend-content select { min-height: 44px; font-size: 16px; }
+    .mm-legend-content .note { color: var(--mm-muted); font-size: 12px; }
+    .leaflet-bottom.leaflet-right { bottom: calc(var(--mm-nav) + env(safe-area-inset-bottom)); }
+    .leaflet-control-attribution { max-width: 100vw; box-sizing: border-box; font-size: 9px; line-height: 1.4; }
+    .mm-map-scrim.visible { display: block; position: fixed; inset: 0; z-index: 1400; background: rgba(15,35,26,.28); }
+    .fd-drawer, .ls-drawer { top: calc(66px + env(safe-area-inset-top)); bottom: 0; width: 100%; max-height: calc(100dvh - 66px - env(safe-area-inset-top)); border-radius: 18px 18px 0 0; overflow: hidden; box-shadow: 0 -4px 24px rgba(15,35,26,.2); }
+    .fd-head, .ls-head { flex-shrink: 0; min-height: 56px; box-sizing: border-box; padding: 6px 12px 6px 16px; }
+    .fd-head h2, .ls-head h2 { font-size: 17px; }
+    .fd-head > button, .ls-head > button, .sv-head > button { width: 44px; height: 44px; flex-shrink: 0; }
+    .fd-body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .mm-filter-toggle { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 10px 16px; border: 0; border-bottom: 1px solid #dce5df; background: #fff; color: var(--mm-ink); text-align: left; font: 600 14px system-ui, sans-serif; flex-shrink: 0; cursor: pointer; }
+    .mm-filter-toggle span { color: var(--mm-muted); font-weight: 400; }
+    .fd-form, .ls-filters { max-height: 43dvh; overflow-y: auto; overscroll-behavior: contain; flex-shrink: 1; min-height: 0; }
+    .mm-filters-collapsed #fdForm, .mm-filters-collapsed #lsFilters { display: none; }
+    .fd-form { padding: 12px 16px; }
+    .fd-row, .ls-filters { gap: 12px; }
+    .fd-f label.t, .ls-filters label { font-size: 13px; color: #41594d; }
+    .fd-f select, .fd-f input[type=number], .ls-filters input, .ls-filters select { min-height: 44px; font-size: 16px; padding: 10px; border-color: #a3b4a9; border-radius: 8px; }
+    .fd-chips, .ls-chips { gap: 6px; }
+    .fd-chips label, .ls-chips label { min-height: 44px; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border-radius: 8px; border-color: #b6c5bc; }
+    .fd-chips input, .ls-chips input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--mm-green); flex-shrink: 0; }
+    .fd-form summary { min-height: 44px; display: flex; align-items: center; }
+    #fdReset { min-height: 44px; }
+    .fd-sum, .ls-bar { flex-shrink: 0; padding: 8px 16px; gap: 6px; }
+    .fd-sum { font-size: 13px; line-height: 1.5; }
+    .fd-sum > span:last-child { display: flex; gap: 8px; }
+    .fd-sum button, .ls-bar button { min-height: 44px; padding: 8px 12px; font-size: 14px; border-radius: 8px; }
+    .fd-list, .ls-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px max(20px, env(safe-area-inset-bottom)); }
+    .fd-item, .ls-item { padding: 14px 0; margin: 0; border: 0; border-bottom: 1px solid #dce5df; border-radius: 0; background: transparent; overflow-wrap: anywhere; }
+    .fd-item b, .ls-item b { font-size: 16px; line-height: 1.4; color: var(--mm-ink); }
+    .fd-item small, .ls-item small { margin-top: 4px; color: var(--mm-muted); font-size: 13px; line-height: 1.5; }
+    .fd-item .k, .ls-item .m { font-size: 13px; line-height: 1.6; margin-top: 5px; }
+    .fd-item .k > span:last-child { color: var(--mm-muted) !important; }
+    .mm-method { flex-shrink: 0; background: #f0f5f1; padding-bottom: env(safe-area-inset-bottom); }
+    .mm-method summary { display: list-item; min-height: 44px; box-sizing: border-box; padding: 12px 16px; font-size: 13px; color: var(--mm-muted); cursor: pointer; }
+    .mm-method .fd-note { max-height: 22dvh; overflow-y: auto; margin: 0; padding: 0 16px 12px; font-size: 13px; color: var(--mm-muted); }
+    .ls-tabs { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding: 10px 16px; gap: 8px; }
+    .ls-tabs button { min-height: 44px; white-space: nowrap; flex-shrink: 0; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+    .ls-filters { padding: 12px 16px; }
+    .ls-more { min-height: 48px; margin-top: 12px; font-size: 15px; }
+    .sv-sheet { height: 100%; height: var(--mm-visual-height, 100dvh); top: var(--mm-visual-top, 0px); bottom: auto; }
+    .sv-card { width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+    .sv-head { position: static; flex-shrink: 0; padding: max(8px, env(safe-area-inset-top)) 12px 8px 16px; min-height: 60px; box-sizing: border-box; }
+    .sv-head h2 { overflow-wrap: anywhere; }
+    .sv-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; margin: 0; }
+    .sv-sec { padding: 14px 0; border: 0; border-bottom: 1px solid #dce5df; border-radius: 0; margin: 0 0 10px; background: transparent; }
+    .sv-sec h3 { font-size: 17px; margin-bottom: 14px; }
+    .sv-f { margin-bottom: 14px; min-width: 0; }
+    .sv-f label.t { font-size: 14px; color: #41594d; }
+    .sv-row { gap: 12px; }
+    .sv-f input, .sv-f select, .sv-f textarea { min-height: 48px; font-size: 16px; border-color: #a3b4a9 !important; }
+    .sv-chips label { display: inline-flex; align-items: center; min-height: 44px; border-radius: 8px; font-size: 14px; }
+    .sv-chips input { width: 18px; height: 18px; min-height: 0; accent-color: var(--mm-green); }
+    .sv-stars { display: flex; gap: 4px; }
+    .sv-stars button { min-width: 44px; min-height: 44px; }
+    .sv-counter { gap: 6px; }
+    .sv-counter button { min-height: 78px; }
+    .sv-foot { position: static; flex-shrink: 0; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
+    .sv-foot .sv-btn { min-width: 0; min-height: 48px; font-size: 16px; }
+    .sv-body .sv-btn { min-height: 44px; box-sizing: border-box; }
+    .sv-stat { font-size: 13px; overflow-x: auto; padding: 10px; line-height: 1.6; }
+    .sv-stat td, .sv-stat th { padding: 5px 4px; }
+    .mm-survey-stats { display: block; margin-top: 10px; border-bottom: 1px solid #dce5df; }
+    .mm-survey-stats > summary { display: list-item; min-height: 48px; box-sizing: border-box; padding: 12px 0; color: var(--mm-green); font-size: 14px; font-weight: 600; cursor: pointer; }
+    .mm-survey-stats .sv-stat { margin-bottom: 12px; }
+    .sv-warn { overflow-wrap: anywhere; }
+    #svTok { min-width: 0; }
+    .sv-list-item { padding: 14px 12px; overflow-wrap: anywhere; }
+    .sv-list-item small { line-height: 1.6; color: var(--mm-muted); }
+    .sv-photos img { width: 96px; height: 96px; }
+    .sv-photos span { width: 32px; height: 32px; line-height: 32px; }
+    .sv-banner { position: fixed; top: calc(70px + env(safe-area-inset-top)); left: 12px; right: 12px; transform: none; padding: 14px; box-sizing: border-box; line-height: 1.6; font-size: 15px; z-index: 1300; }
+    .sv-banner button { min-height: 44px; margin: 10px 8px 0 0; }
+    body.mm-picking #svSyncBtn { visibility: hidden; }
+    .sv-toast { bottom: calc(var(--mm-nav) + env(safe-area-inset-bottom) + 12px); max-width: calc(100vw - 48px); width: max-content; box-sizing: border-box; text-align: center; line-height: 1.5; }
+    .leaflet-popup-content { max-width: calc(100vw - 70px); margin: 14px; font-size: 14px; overflow-wrap: anywhere; }
+    .leaflet-popup-content-wrapper { border-radius: 12px; }
+    .leaflet-container a.leaflet-popup-close-button { width: 44px; height: 44px; line-height: 40px; }
+    .rs-pop, .pj-pop, .fd-pop { max-height: 45dvh; overflow-y: auto; overscroll-behavior: contain; padding-top: 14px; }
+    .fd-pop button { min-height: 44px; }
+    body.mm-drawer-open .rs-search, body.mm-drawer-open .sv-fab,
+    body.mm-sheet-open .rs-search, body.mm-sheet-open .sv-fab { visibility: hidden; }
+    @media (max-width: 359px) {
+      .sv-row, .fd-row, .ls-filters { grid-template-columns: minmax(0, 1fr); }
+      .sv-body > div[style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
+    }
+    @media (orientation: landscape) and (max-height: 500px) {
+      :root { --mm-nav: 60px; }
+      .sv-fab > .sv-btn:not(#svSyncBtn) { min-height: 48px; flex-direction: row; gap: 8px; }
+      .fd-drawer, .ls-drawer { top: 0; max-height: 100dvh; border-radius: 0; }
+      .fd-form, .ls-filters { max-height: 35dvh; }
+      .fd-sum { flex-wrap: nowrap; }
+      #svSyncBtn { top: 68px; }
+    }
+  }
+</style>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const mobile = window.matchMedia('(max-width: 899px)');
+  if (window.visualViewport) {
+    const viewport = window.visualViewport;
+    let frame;
+    const sizeSheet = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        document.documentElement.style.setProperty('--mm-visual-height', `${viewport.height}px`);
+        document.documentElement.style.setProperty('--mm-visual-top', `${viewport.offsetTop}px`);
+      });
+    };
+    viewport.addEventListener('resize', sizeSheet); viewport.addEventListener('scroll', sizeSheet); sizeSheet();
+  }
+  const icon = paths => `<svg class="mm-icon" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+  const icons = {
+    find: icon('<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M10 7v6M7 10h6"/>'),
+    data: icon('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
+    add: icon('<path d="M12 5v14M5 12h14"/>'),
+    saved: icon('<path d="M6 3h12v18l-6-4-6 4z"/>'),
+    cloud: icon('<path d="M6 18a4 4 0 0 1-1-7.9A7 7 0 0 1 18.6 9a4.5 4.5 0 0 1-.1 9H6"/>'),
+    legend: icon('<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>'),
+  };
+  const nav = [
+    ['fdOpen', 'find', 'Tìm khu', 'Tìm khu thiếu minimart'],
+    ['lsOpen', 'data', 'Dữ liệu', 'Danh sách dữ liệu'],
+    ['svAdd', 'add', 'Khảo sát', 'Thêm điểm khảo sát'],
+    ['svListBtn', 'saved', 'Đã lưu', 'Danh sách điểm khảo sát đã lưu'],
+  ];
+  nav.forEach(([id, name, label, accessible]) => {
+    const button = $(id), original = document.createElement('span');
+    original.className = 'mm-desktop-label';
+    while (button.firstChild) original.append(button.firstChild);
+    button.append(original);
+    const glyph = document.createElement('span'); glyph.className = 'mm-nav-icon'; glyph.innerHTML = icons[name];
+    const text = document.createElement('span'); text.className = 'mm-mobile-label'; text.textContent = label;
+    button.prepend(glyph); button.append(text); button.setAttribute('aria-label', accessible);
+  });
+  // Keep the original count node so survey refreshes update both layouts.
+  const count = $('svCount');
+  new MutationObserver(() => { $('svListBtn').querySelector('.mm-mobile-label').textContent = `Đã lưu (${count.textContent})`; }).observe(count, { childList: true, characterData: true, subtree: true });
+  $('svListBtn').querySelector('.mm-mobile-label').textContent = `Đã lưu (${count.textContent})`;
+  const sync = $('svSyncBtn'); sync.firstChild.textContent = ''; sync.insertAdjacentHTML('afterbegin', icons.cloud);
+  sync.setAttribute('aria-label', 'Trạng thái đồng bộ; bấm để kết nối hoặc đồng bộ');
+  $('rsQ').placeholder = 'Tìm khu, chung cư, dự án…';
+  $('rsQ').setAttribute('aria-label', 'Tìm khu dân cư, chung cư, dự án hoặc phường xã');
+
+  const panelEl = document.querySelector('.panel'), content = document.createElement('div');
+  content.className = 'mm-legend-content'; content.id = 'mmLegendContent';
+  while (panelEl.firstChild) content.append(panelEl.firstChild);
+  const legend = document.createElement('button'); legend.className = 'mm-legend-toggle';
+  legend.innerHTML = `${icons.legend}<span>Chú giải bản đồ</span>`;
+  legend.setAttribute('aria-expanded', 'false'); legend.setAttribute('aria-controls', content.id);
+  legend.onclick = () => { const open = panelEl.classList.toggle('mm-legend-open'); legend.setAttribute('aria-expanded', String(open)); };
+  panelEl.append(legend, content);
+
+  function filters(drawerId, formId, before) {
+    const drawer = $(drawerId), form = $(formId), button = document.createElement('button');
+    drawer.classList.add('mm-filters-collapsed'); button.className = 'mm-filter-toggle';
+    button.innerHTML = 'Bộ lọc <span>Điều chỉnh</span>'; button.setAttribute('aria-controls', formId); button.setAttribute('aria-expanded', 'false');
+    button.onclick = () => { const closed = drawer.classList.toggle('mm-filters-collapsed'); button.setAttribute('aria-expanded', String(!closed)); button.lastElementChild.textContent = closed ? 'Điều chỉnh' : 'Thu gọn'; };
+    before.parentNode.insertBefore(button, before);
+  }
+  filters('fdDrawer', 'fdForm', $('fdForm'));
+  filters('lsDrawer', 'lsFilters', $('lsFilters'));
+  const note = document.querySelector('.fd-note'), method = document.createElement('details');
+  method.className = 'mm-method'; const summary = document.createElement('summary'); summary.textContent = 'Nguồn dữ liệu & cách đọc kết quả';
+  method.append(summary); note.before(method); method.append(note);
+  // Keep the explanatory note expanded on desktop.
+  const setMode = () => {
+    method.open = !mobile.matches;
+    document.querySelectorAll('.mm-survey-stats').forEach(d => { d.open = !mobile.matches; });
+    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+  };
+  mobile.addEventListener('change', setMode); setMode();
+
+  const scrim = document.createElement('div'); scrim.className = 'mm-map-scrim'; scrim.setAttribute('aria-hidden', 'true'); document.body.append(scrim);
+  const drawers = [$('fdDrawer'), $('lsDrawer')];
+  let lastOpener = null, activeSurface = null;
+  const closeDrawers = () => drawers.forEach(d => d.classList.remove('open'));
+  scrim.onclick = closeDrawers;
+  // Existing click handlers retain their behavior; this only coordinates surfaces.
+  $('fdOpen').addEventListener('click', () => { $('lsDrawer').classList.remove('open'); lastOpener = $('fdOpen'); });
+  $('lsOpen').addEventListener('click', () => { $('fdDrawer').classList.remove('open'); lastOpener = $('lsOpen'); });
+  $('fdDrawer').addEventListener('click', e => { if (mobile.matches && e.target.closest('#fdFit')) closeDrawers(); });
+  ['svAdd', 'svListBtn', 'svSyncBtn'].forEach(id => $(id).addEventListener('click', () => { closeDrawers(); lastOpener = $(id); }));
+  const updateSurfaces = () => {
+    const sheetOpen = getComputedStyle($('svSheet')).display !== 'none';
+    const drawer = drawers.find(d => d.classList.contains('open'));
+    const surface = sheetOpen ? $('svSheet') : drawer;
+    document.body.classList.toggle('mm-drawer-open', !!drawer);
+    document.body.classList.toggle('mm-sheet-open', sheetOpen);
+    document.body.classList.toggle('mm-picking', $('svBanner').style.display === 'block');
+    scrim.classList.toggle('visible', !!drawer && !sheetOpen);
+    [['fdOpen', $('fdDrawer')], ['lsOpen', $('lsDrawer')]].forEach(([id, d]) => $(id).setAttribute('aria-expanded', String(d.classList.contains('open'))));
+    if (surface !== activeSurface) {
+      if (surface && mobile.matches) {
+        surface.querySelector('button')?.focus({ preventScroll: true });
+      } else if (!surface && activeSurface && lastOpener) lastOpener.focus({ preventScroll: true });
+      activeSurface = surface;
+    }
+  };
+  const observer = new MutationObserver(updateSurfaces);
+  drawers.forEach(d => observer.observe(d, { attributes: true, attributeFilter: ['class'] }));
+  observer.observe($('svSheet'), { attributes: true, attributeFilter: ['style'] });
+  observer.observe($('svBanner'), { attributes: true, attributeFilter: ['style'] });
+  // The survey DOM is rebuilt for each view; label controls when a new view appears.
+  new MutationObserver(() => {
+    $('svX')?.setAttribute('aria-label', 'Đóng khảo sát');
+    $('svCard').querySelectorAll('.sv-stat').forEach(stats => {
+      if (stats.closest('.mm-survey-stats')) return;
+      const details = document.createElement('details'), heading = document.createElement('summary');
+      details.className = 'mm-survey-stats'; details.open = !mobile.matches;
+      heading.textContent = 'Phân tích quanh điểm · 300 m–1 km';
+      stats.before(details); details.append(heading, stats);
+    });
+    document.querySelectorAll('.sv-f').forEach((field, index) => {
+      const label = field.querySelector('label.t'), input = field.querySelector('input:not([type=checkbox]), select, textarea');
+      if (label && input) { input.id = `mmField${index}`; label.htmlFor = input.id; }
+    });
+  }).observe($('svCard'), { childList: true });
+  $('fdX').setAttribute('aria-label', 'Đóng tìm khu'); $('lsX').setAttribute('aria-label', 'Đóng danh sách dữ liệu');
+  drawers.forEach(d => { d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', d.querySelector('h2').textContent); });
+  $('svSheet').setAttribute('role', 'dialog'); $('svSheet').setAttribute('aria-label', 'Khảo sát thực địa');
+  document.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.fd-item, .ls-item, .sv-list-item')) {
+      e.preventDefault(); e.target.click(); return;
+    }
+    if (e.key === 'Escape') {
+      if (getComputedStyle($('svSheet')).display !== 'none') $('svX')?.click();
+      else if (drawers.some(d => d.classList.contains('open'))) closeDrawers();
+      else if ($('svBanner').style.display === 'block') $('svCancelPick').click();
+      else { panelEl.classList.remove('mm-legend-open'); legend.setAttribute('aria-expanded', 'false'); }
+    }
+    if (e.key === 'Tab' && activeSurface && mobile.matches) {
+      const focusable = [...activeSurface.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length && !el.disabled);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
+  });
+  map.on('popupopen', () => {
+    if (mobile.matches) { panelEl.classList.remove('mm-legend-open'); legend.setAttribute('aria-expanded', 'false'); }
+  });
+  updateSurfaces();
 })();
 </script>
 
